@@ -12,15 +12,86 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <libmilter/mfapi.h>
+#include <libmilter/mfdef.h>
+#include <syslog.h>
+#include <ctype.h>
+
+#include "config.h"
 
 char** getTextRecords(ns_msg handle, ns_sect section);
 void freeList(char** stringList);
 int parseDomain(const char* domainName);
+int startsWith(const char* stringToTest, const char* prefix);
+
+sfsistat
+mlfi_envfrom(SMFICTX *ctx, char **envfrom);
+
+struct smfiDesc smfilter = {
+PACKAGE, /* filter name */
+SMFI_VERSION, /* version code */
+SMFIF_ADDHDRS, /* flags */
+NULL, /* connection info filter */
+NULL, /* SMTP HELO command filter */
+mlfi_envfrom, /* envelope sender filter */
+NULL, /* envelope recipient filter */
+NULL, /* header filter */
+NULL, /* end of header */
+NULL, /* body block filter */
+NULL, /* end of message */
+NULL, /* message aborted */
+NULL, /* connection cleanup */
+};
 
 int main(int argc, char **argv) {
-	if (argc == 2)
-		parseDomain(argv[1]);
-	return 0;
+	if (argc != 2) {
+		printf("Error. Socket should be passed as a parameter");
+	}
+//	char *socketPath = "/home/pavel/sfp-all-milter.sock";
+	char *socketPath = argv[1];
+	smfi_setconn(socketPath);
+
+	if (smfi_register(smfilter) == MI_FAILURE) {
+		fprintf(stderr, "%s: smfi_register failed\n", argv[0]);
+		exit(1);
+	}
+
+	syslog(LOG_INFO, "%s milter ssuccessfully started. Listening socket %s",
+	PACKAGE, socketPath);
+	return smfi_main();
+}
+
+void strtolower(char *str) {
+	/* check for required data presented */
+	if (!str)
+		return;
+	for (; *str; str++)
+		*str = tolower(*str);
+}
+
+sfsistat mlfi_envfrom(SMFICTX *ctx, char **envfrom) {
+	char *from_addr = NULL, *from_host = NULL;
+
+	/* get macro data */
+	if (!(from_addr = smfi_getsymval(ctx, "{mail_addr}"))) {
+		syslog(LOG_ERR, "mail_macro: {mail_addr} must be available");
+		return SMFIS_TEMPFAIL;
+	}
+
+	strtolower(from_addr);
+
+	/* get host part of e-mail address */
+	if ((from_host = strrchr(from_addr, '@')))
+		from_host++;
+	else
+		from_host = from_addr;
+
+	if (!parseDomain(from_host)) {
+		smfi_setreply(ctx, "530", "5.7.1",
+				"Sender domain has wrong SPF record (containing +all)");
+		return SMFIS_REJECT;
+	}
+	return SMFIS_CONTINUE;
 }
 
 /**
@@ -36,22 +107,31 @@ int parseDomain(const char* domainName) {
 
 	if ((responseLen = res_query(domainName, C_IN, T_TXT, (u_char *) &response,
 			NS_PACKETSZ)) < 0) {
-		printf("@Can't query %s\n", domainName);
-		return 1;
+		syslog(LOG_WARNING, "Can't query %s\n", domainName);
+		return 0;
 	}
 	ns_msg handle;
 	if (ns_initparse(response.buf, responseLen, &handle) < 0) {
-		fprintf(stderr, "ns_initparse: %s\n", strerror(errno));
-		return 2;
+		syslog(LOG_ERR, "ns_initparse: %s\n", strerror(errno));
+		return 0;
 	}
 	char** records = getTextRecords(handle, ns_s_an);
 	int i;
 	for (i = 0; records[i] != NULL; i++) {
-		printf("TXT record contents: %s\n", records[i]);
-
+		if (startsWith(records[i], "v=spf1")) {
+			if (strstr(records[i], "+all")) {
+				printf("Domain %s has invalid SPF record: %s\n", domainName,
+						records[i]);
+				return 0;
+			}
+		}
 	}
 	freeList(records);
-	return 0;
+	return 1;
+}
+
+int startsWith(const char* stringToTest, const char* prefix) {
+	return !strncmp(stringToTest, prefix, strlen(prefix));
 }
 
 char **getTextRecords(ns_msg handle, ns_sect section) {
