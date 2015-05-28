@@ -1,0 +1,19 @@
+[Unit]
+Description=spf-all-milter daemon providing milter interface for sendmail
+Requires=var-run.mount nss-lookup.target network.target remote-fs.target syslog.target
+After=var-run.mount nss-lookup.target network.target remote-fs.target syslog.target
+Wants=amavis.service nscd.service
+After=amavis.service nscd.service
+Before=sendmail.service
+
+[Service]
+Type=simple
+#PIDFile=/var/run/smc-milter/smc-milter.pid
+ExecStartPre=/usr/bin/mkdir -p /var/run/spf-all-milter ; /usr/bin/chown spf-all-milter /var/run/spf-all-milter
+ExecStart=/usr/local/bin/spf-all-milter /var/run/spf-all-milter/milter.sock
+
+[Exec]
+User=spf-all-milter
+
+[Install]
+WantedBy=multi-user.target
