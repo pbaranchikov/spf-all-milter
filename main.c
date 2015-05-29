@@ -52,12 +52,12 @@ NULL, /* connection cleanup */
 };
 
 const char** excludedDomains;
+const int loglevel = LOG_DEBUG;
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		printf("Error. Socket should be passed as a parameter");
 	}
-//	char *socketPath = "/home/pavel/sfp-all-milter.sock";
 	char *socketPath = argv[1];
 	smfi_setconn(socketPath);
 
@@ -114,6 +114,9 @@ sfsistat mlfi_envfrom(SMFICTX *ctx, char **envfrom) {
  * @returns 0 if domain is Ok, 1 if domain has +all in its SPF records
  */
 int parseDomain(const char* domainName) {
+	if (loglevel >= LOG_DEBUG) {
+		syslog(LOG_DEBUG, "Parsing domain %s", domainName);
+	}
 	int responseLen;
 	union {
 		HEADER hdr; /* defined in resolv.h */
@@ -135,6 +138,12 @@ int parseDomain(const char* domainName) {
 		return 1;
 	}
 	char** records = getTextRecords(handle, ns_s_an);
+	if (!records) {
+		// On errors, we just ignore the milter.
+		syslog(LOG_ERR, "Error retrieving TXT records from domain %s",
+				domainName);
+		return 1;
+	}
 	int i;
 	for (i = 0; records[i] != NULL; i++) {
 		// If this is an SFP record
@@ -143,12 +152,18 @@ int parseDomain(const char* domainName) {
 			if (strstr(records[i], "+all")) {
 				// If domain is not excluded
 				if (!isInList(excludedDomains, domainName)) {
-					printf("Domain %s has invalid SPF record: %s\n", domainName,
-							records[i]);
+					if (loglevel >= LOG_INFO) {
+						syslog(LOG_INFO,
+								"Domain %s has invalid SPF record: %s\n",
+								domainName, records[i]);
+					}
 					return 0;
 				}
 			}
 		}
+	}
+	if (loglevel >= LOG_DEBUG) {
+		syslog(LOG_DEBUG, "Freeing RR list for domain %s", domainName);
 	}
 	freeList(records);
 	return 1;
@@ -171,7 +186,8 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 		 * Expand the resource record number rrnum into rr.
 		 */
 		if (ns_parserr(&handle, section, rrnum, &rr)) {
-			fprintf(stderr, "ns_parserr: %s\n", strerror(errno));
+			syslog(LOG_WARNING, "ns_parserr: %s. DNS record is ignored\n",
+					strerror(errno));
 			continue;
 		}
 
@@ -190,7 +206,7 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 			textRecords = addNewElement(textRecords, txtField);
 
 			if (txtField == NULL) {
-				(void) fprintf(stderr, "malloc failed\n");
+				syslog(LOG_ERR, "malloc failed\n");
 				freeList(textRecords);
 				return NULL;
 			}
@@ -198,7 +214,7 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 			const int dataSize = ns_rr_rdlen(rr);
 			const char* dataPointer = ns_rr_rdata(rr) + 1;
 			if (dataSize >= MAXDNAME) {
-				fprintf(stderr,
+				syslog(LOG_ERR,
 						"DNS RR data field size is more that buffer has");
 				freeList(textRecords);
 				return NULL;
@@ -211,6 +227,9 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 }
 
 void freeList(char** stringList) {
+	if (!stringList) {
+		return;
+	}
 	int i;
 	for (i = 0; stringList[i] != NULL; i++) {
 		free(stringList[i]);
@@ -270,7 +289,7 @@ char** addNewElement(char** list, char* newElement) {
 	int size;
 	for (size = 0; list[size] != NULL; size++) {
 	}
-	char** result = (char**) realloc(list, sizeof(char*) * size + 2);
+	char** result = (char**) realloc(list, sizeof(char*) * (size + 2));
 	result[size] = newElement;
 	result[size + 1] = NULL;
 	return result;
