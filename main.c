@@ -122,13 +122,17 @@ int parseDomain(const char* domainName) {
 
 	if ((responseLen = res_query(domainName, C_IN, T_TXT, (u_char *) &response,
 			NS_PACKETSZ)) < 0) {
-		syslog(LOG_WARNING, "Can't query %s\n", domainName);
-		return 0;
+		if (errno != 0) {
+			syslog(LOG_WARNING, "Can't query %s: %s\n", domainName,
+					strerror(errno));
+		}
+		// if errno==0, then there is no answer. So... no TXT records to analyze.
+		return 1;
 	}
 	ns_msg handle;
 	if (ns_initparse(response.buf, responseLen, &handle) < 0) {
 		syslog(LOG_ERR, "ns_initparse: %s\n", strerror(errno));
-		return 0;
+		return 1;
 	}
 	char** records = getTextRecords(handle, ns_s_an);
 	int i;
@@ -223,7 +227,7 @@ const char** readExcludedDomains() {
 	char** result = createList();
 
 	while (!feof(config)) {
-		char *newLine = (char*) malloc (FILENAME_LENGTH);
+		char *newLine = (char*) malloc(FILENAME_LENGTH);
 		if (!fgets(newLine, FILENAME_LENGTH, config)) {
 			if (errno == 0) {
 				break;
@@ -232,7 +236,7 @@ const char** readExcludedDomains() {
 				CONFIG_FILE, strerror(errno));
 				freeList(result);
 				fclose(config);
-				free (newLine);
+				free(newLine);
 				return NULL;
 			}
 		}
