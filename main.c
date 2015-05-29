@@ -24,6 +24,14 @@ void freeList(char** stringList);
 int parseDomain(const char* domainName);
 int startsWith(const char* stringToTest, const char* prefix);
 
+const char** readExcludedDomains();
+int isInList(const char** list, const char* string);
+char** createList();
+char** addNewElement(char** list, char* newElement);
+
+#define CONFIG_FILE "/etc/spf-all-milter-exclusions.conf"
+#define FILENAME_LENGTH 255
+
 sfsistat
 mlfi_envfrom(SMFICTX *ctx, char **envfrom);
 
@@ -43,6 +51,8 @@ NULL, /* message aborted */
 NULL, /* connection cleanup */
 };
 
+const char** excludedDomains;
+
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		printf("Error. Socket should be passed as a parameter");
@@ -58,7 +68,12 @@ int main(int argc, char **argv) {
 
 	syslog(LOG_INFO, "%s milter ssuccessfully started. Listening socket %s",
 	PACKAGE, socketPath);
-	return smfi_main();
+	if ((excludedDomains = readExcludedDomains()))
+		return smfi_main();
+	else {
+		fprintf(stderr, "Could not load exclusions");
+		return 1;
+	}
 }
 
 void strtolower(char *str) {
@@ -118,11 +133,16 @@ int parseDomain(const char* domainName) {
 	char** records = getTextRecords(handle, ns_s_an);
 	int i;
 	for (i = 0; records[i] != NULL; i++) {
+		// If this is an SFP record
 		if (startsWith(records[i], "v=spf1")) {
+			// It it is invalid
 			if (strstr(records[i], "+all")) {
-				printf("Domain %s has invalid SPF record: %s\n", domainName,
-						records[i]);
-				return 0;
+				// If domain is not excluded
+				if (!isInList(excludedDomains, domainName)) {
+					printf("Domain %s has invalid SPF record: %s\n", domainName,
+							records[i]);
+					return 0;
+				}
 			}
 		}
 	}
@@ -135,8 +155,7 @@ int startsWith(const char* stringToTest, const char* prefix) {
 }
 
 char **getTextRecords(ns_msg handle, ns_sect section) {
-	char **textRecords = NULL;
-	int textRecordsCount = 0;
+	char **textRecords = createList();
 	int rrnum; /* resource record number */
 	ns_rr rr; /* expanded resource record */
 
@@ -149,6 +168,7 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 		 */
 		if (ns_parserr(&handle, section, rrnum, &rr)) {
 			fprintf(stderr, "ns_parserr: %s\n", strerror(errno));
+			continue;
 		}
 
 		/*
@@ -162,12 +182,8 @@ char **getTextRecords(ns_msg handle, ns_sect section) {
 			 * programmer should, we test malloc's return value,
 			 * and quit if it fails.
 			 */
-			textRecordsCount++;
-			textRecords = (char**) realloc(textRecords,
-					textRecordsCount * sizeof(char*));
 			char *txtField = (char *) malloc(MAXDNAME);
-			textRecords[textRecordsCount - 1] = txtField;
-			textRecords[textRecordsCount] = NULL;
+			textRecords = addNewElement(textRecords, txtField);
 
 			if (txtField == NULL) {
 				(void) fprintf(stderr, "malloc failed\n");
@@ -196,5 +212,63 @@ void freeList(char** stringList) {
 		free(stringList[i]);
 	}
 	free(stringList);
+}
+
+const char** readExcludedDomains() {
+	FILE* config = fopen( CONFIG_FILE, "r");
+	if (!config) {
+		syslog(LOG_ERR, "Exclusions file %s does not exist", CONFIG_FILE);
+		return NULL;
+	}
+	char** result = createList();
+
+	while (!feof(config)) {
+		char *newLine = (char*) malloc (FILENAME_LENGTH);
+		if (!fgets(newLine, FILENAME_LENGTH, config)) {
+			if (errno == 0) {
+				break;
+			} else {
+				fprintf(stderr, "error reading exclusions file %s: %s\n",
+				CONFIG_FILE, strerror(errno));
+				freeList(result);
+				fclose(config);
+				free (newLine);
+				return NULL;
+			}
+		}
+		char* nlPos;
+		if ((nlPos = strchr(newLine, '\n'))) {
+			*nlPos = 0x0;
+		}
+		result = addNewElement(result, newLine);
+	}
+	fclose(config);
+	return (const char**) result;
+}
+
+char** createList() {
+	char** result = (char**) malloc(sizeof(char*));
+	result[0] = NULL;
+	return result;
+}
+
+int isInList(const char** list, const char* string) {
+	int i;
+	for (i = 0; list[i] != NULL; i++) {
+		if (!strcasecmp(list[i], string)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+char** addNewElement(char** list, char* newElement) {
+	int size;
+	for (size = 0; list[size] != NULL; size++) {
+	}
+	char** result = (char**) realloc(list, sizeof(char*) * size + 2);
+	result[size] = newElement;
+	result[size + 1] = NULL;
+	return result;
 }
 
