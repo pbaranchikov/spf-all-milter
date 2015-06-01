@@ -1,5 +1,4 @@
 .*
-COPYING
 Debug/
 Release/
 INSTALL
@@ -17,3 +16,4 @@ main.o
 missing
 spf-all-milter
 stamp-h1
+*.tar.gz

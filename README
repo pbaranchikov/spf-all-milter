@@ -1,0 +1,57 @@
+# SPF +all milter
+
+## Overview
+
+Fight with spam is a long time battle... very old.
+
+Once SPF mechanism allows to fight spam rather efficiently,
+some of DNS administrators do not care of SPF records in their
+domains and inflict harm to SPF-based spam-filters, adding
+substring "+all" to the resource records.
+
+According to its own site, http://www.openspf.org/SPF_Record_Syntax
+SPF founders seems to be rather hostile to the aministrators mentioned.
+
+The "SPF +all milter" is a mail filter (milter) to reject all the
+mails, sent from domains, which SPF resource records contain
+"+all". Almost all of the mail from these domains IS spam.
+
+In rare cases, if your responent should send to you email from such
+SPF-careless domain, he whould be notified about the error. Hope, this
+should help him to understand the problem and fix the resource
+records.
+
+The ordinal sendmail for the mail is the following:
+
+    2015-06-01T07:37:50.956466+03:00 omega sendmail[23216]: t514bnBT023216: Milter: from=<email@domrabota-doma.ru>, reject=530 5.7.1 Sender domain has wrong SPF record (containing +all)
+    2015-06-01T07:37:51.008575+03:00 omega sendmail[23216]: t514bnBT023216: from=<email@domrabota-doma.ru>, size=41699, class=0, nrcpts=0, proto=ESMTP, daemon=MTA, relay=[77.221.144.211]
+
+## Running the milter
+
+Milter comunicates to sendmail server though Berkley sockets.
+The socket is specified as a single parameter of the binary
+
+    spf-all-milter /var/run/spf-all-milter/milter.sock
+
+Milter does not require root privileges, so you are encouraged to
+run it under a separate user account. That's why the directory
+where socket is aimed should be created before milter launch and
+milter's account should have access to create socket there.
+
+Please, refer to file spf-all-milter.service as an example of
+systemd configuration to launch the milter.
+
+Also, create empty file /etc/spf-all-milter-exclusions.conf before
+milter launch. Milter should have read access to the file
+
+    touch /etc/spf-all-milter-exclusions.conf
+
+## Exclusions
+
+Also, you can disable the check for the specific domains, using the
+exclusions file (/etc/spf-all-milter-exclusions.conf). Just post one
+domain name per line.
+
+Exclusions disable checks for the domain at all.
+
+Exclusions disable checks for the certain domain, not its subdomains
