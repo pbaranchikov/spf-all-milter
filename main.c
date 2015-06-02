@@ -61,7 +61,7 @@ NULL, /* connection cleanup */
 };
 
 const char** excludedDomains;
-const int loglevel = LOG_INFO;
+const int loglevel = LOG_DEBUG;
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
@@ -137,6 +137,12 @@ int parseDomain(const char* domainName) {
 		if (errno != 0) {
 			syslog(LOG_WARNING, "Can't query %s: %s\n", domainName,
 					strerror(errno));
+		} else {
+			if (loglevel >= LOG_DEBUG) {
+				syslog(LOG_DEBUG,
+						"Domain %s has no TXT records. Skipping checks.",
+						domainName);
+			}
 		}
 		// if errno==0, then there is no answer. So... no TXT records to analyze.
 		return 1;
@@ -154,6 +160,7 @@ int parseDomain(const char* domainName) {
 		return 1;
 	}
 	int i;
+	int result = 1;
 	for (i = 0; records[i] != NULL; i++) {
 		// If this is an SFP record
 		if (startsWith(records[i], "v=spf1")) {
@@ -166,7 +173,8 @@ int parseDomain(const char* domainName) {
 								"Domain %s has invalid SPF record: %s\n",
 								domainName, records[i]);
 					}
-					return 0;
+					result = 0;
+					break;
 				}
 			}
 		}
@@ -175,7 +183,7 @@ int parseDomain(const char* domainName) {
 		syslog(LOG_DEBUG, "Freeing RR list for domain %s", domainName);
 	}
 	freeList(records);
-	return 1;
+	return result;
 }
 
 int startsWith(const char* stringToTest, const char* prefix) {
@@ -299,8 +307,14 @@ char** addNewElement(char** list, char* newElement) {
 	for (size = 0; list[size] != NULL; size++) {
 	}
 	char** result = (char**) realloc(list, sizeof(char*) * (size + 2));
-	result[size] = newElement;
-	result[size + 1] = NULL;
-	return result;
+	if (!result) {
+		freeList(list);
+		syslog(LOG_ERR, "Error reallocating memory to add new element");
+		return NULL;
+	} else {
+		result[size] = newElement;
+		result[size + 1] = NULL;
+		return result;
+	}
 }
 
