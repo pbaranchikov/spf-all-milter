@@ -280,7 +280,12 @@ const char** readExcludedDomains() {
 		if ((nlPos = strchr(newLine, '\n'))) {
 			*nlPos = 0x0;
 		}
-		result = addNewElement(result, newLine);
+		if (!(result = addNewElement(result, newLine))) {
+			freeList(result);
+			fclose(config);
+			free(newLine);
+			return NULL;
+		}
 	}
 	fclose(config);
 	return (const char**) result;
