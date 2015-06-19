@@ -9,7 +9,7 @@ Before=sendmail.service
 [Service]
 Type=simple
 #PIDFile=/var/run/smc-milter/smc-milter.pid
-ExecStartPre=/usr/bin/rm -r /var/run/spf-all-milter ; /usr/bin/mkdir -p /var/run/spf-all-milter ; /usr/bin/chown spf-all-milter /var/run/spf-all-milter
+ExecStartPre=/usr/bin/rm -rf /var/run/spf-all-milter ; /usr/bin/mkdir -p /var/run/spf-all-milter ; /usr/bin/chown spf-all-milter /var/run/spf-all-milter
 ExecStart=/usr/local/bin/spf-all-milter /var/run/spf-all-milter/milter.sock
 
 [Exec]
